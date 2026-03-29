@@ -364,6 +364,9 @@ actions:
               entity_id: !input climate_entity
             data:
               hvac_mode: "off"
+          - action: climate.turn_off
+            target:
+              entity_id: !input climate_entity
 
       - conditions:
           - condition: template
@@ -389,6 +392,9 @@ actions:
                       entity_id: !input climate_entity
                     data:
                       hvac_mode: "off"
+                  - action: climate.turn_off
+                    target:
+                      entity_id: !input climate_entity
 
       - conditions:
           - condition: template
