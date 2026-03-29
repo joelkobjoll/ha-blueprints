@@ -5,6 +5,7 @@ blueprint:
     window-open protection.
 
     Features:
+    - Enable or disable day and night schedules independently
     - Define separate day and night weekdays and start/end times
     - Define separate day and night start/stop/target temperatures
     - Turn the unit off when everyone is away
@@ -53,6 +54,11 @@ blueprint:
       name: Day / night schedule
       icon: mdi:clock-outline
       input:
+        day_schedule_enabled:
+          name: Enable day schedule
+          default: true
+          selector:
+            boolean: {}
         day_weekdays:
           name: Day weekdays
           default:
@@ -122,6 +128,11 @@ blueprint:
               step: 0.5
               mode: box
               unit_of_measurement: "°C"
+        night_schedule_enabled:
+          name: Enable night schedule
+          default: true
+          selector:
+            boolean: {}
         night_weekdays:
           name: Night weekdays
           default:
@@ -277,12 +288,14 @@ variables:
   climate_entity: !input climate_entity
   window_group: !input window_group
   scheduled_hvac_mode: !input scheduled_hvac_mode
+  day_schedule_enabled: !input day_schedule_enabled
   day_weekdays: !input day_weekdays
   day_start_time: !input day_start_time
   day_end_time: !input day_end_time
   day_start_temperature: !input day_start_temperature
   day_stop_temperature: !input day_stop_temperature
   day_target_temperature: !input day_target_temperature
+  night_schedule_enabled: !input night_schedule_enabled
   night_weekdays: !input night_weekdays
   night_start_time: !input night_start_time
   night_end_time: !input night_end_time
@@ -316,8 +329,8 @@ variables:
     {% else %}
       {{ current_time >= night_start_time or current_time < night_end_time }}
     {% endif %}
-  is_day_period: "{{ is_day_weekday and is_day_time }}"
-  is_night_period: "{{ is_night_weekday and is_night_time }}"
+  is_day_period: "{{ day_schedule_enabled and is_day_weekday and is_day_time }}"
+  is_night_period: "{{ night_schedule_enabled and is_night_weekday and is_night_time }}"
   scheduled_temperature: >-
     {% if is_day_period %}
       {{ day_target_temperature }}
@@ -327,13 +340,13 @@ variables:
       {{ '' }}
     {% endif %}
   transition_temperature: >-
-    {% if trigger_id == 'day_start' and is_day_weekday %}
+    {% if trigger_id == 'day_start' and day_schedule_enabled and is_day_weekday %}
       {{ day_start_temperature }}
-    {% elif trigger_id == 'day_end' and is_day_weekday %}
+    {% elif trigger_id == 'day_end' and day_schedule_enabled and is_day_weekday %}
       {{ day_stop_temperature }}
-    {% elif trigger_id == 'night_start' and is_night_weekday %}
+    {% elif trigger_id == 'night_start' and night_schedule_enabled and is_night_weekday %}
       {{ night_start_temperature }}
-    {% elif trigger_id == 'night_end' and is_night_weekday %}
+    {% elif trigger_id == 'night_end' and night_schedule_enabled and is_night_weekday %}
       {{ night_stop_temperature }}
     {% else %}
       {{ '' }}
