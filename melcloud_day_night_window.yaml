@@ -7,6 +7,8 @@ blueprint:
     Features:
     - Define separate day and night weekdays and start/end times
     - Define separate day and night start/stop/target temperatures
+    - Turn the unit off when everyone is away
+    - Resume schedule control when someone is home
     - Optionally set a setback / stop temperature when a window group opens
     - Optionally turn the unit off while the window group is open
     - Reapply the correct scheduled target when the window group closes
@@ -189,6 +191,18 @@ blueprint:
               step: 0.5
               mode: box
               unit_of_measurement: "°C"
+    presence_config:
+      name: Presence
+      icon: mdi:account-group
+      input:
+        people_entities:
+          name: People to track
+          description: Turn off when all selected people are away, and run schedule when someone is home. Leave empty to disable presence control.
+          selector:
+            entity:
+              filter:
+                domain: person
+              multiple: true
     window_config:
       name: Window protection
       icon: mdi:window-open-variant
@@ -246,6 +260,10 @@ triggers:
     id: night_end
 
   - trigger: state
+    entity_id: !input people_entities
+    id: presence_change
+
+  - trigger: state
     entity_id: !input window_group
     to: "on"
     id: window_open
@@ -271,10 +289,16 @@ variables:
   night_start_temperature: !input night_start_temperature
   night_stop_temperature: !input night_stop_temperature
   night_target_temperature: !input night_target_temperature
+  people_entities: !input people_entities
   set_window_temp_on_open: !input set_window_temp_on_open
   window_open_temperature: !input window_open_temperature
   shutdown_on_window_open: !input shutdown_on_window_open
   windows_open: "{{ is_state(window_group, 'on') }}"
+  tracked_people_count: "{{ expand(people_entities) | list | count }}"
+  presence_enabled: "{{ tracked_people_count > 0 }}"
+  home_people_count: "{{ expand(people_entities) | selectattr('state', 'eq', 'home') | list | count }}"
+  someone_home: "{{ (not presence_enabled) or home_people_count > 0 }}"
+  everyone_away: "{{ presence_enabled and home_people_count == 0 }}"
   trigger_id: "{{ trigger.id if trigger is defined else 'startup' }}"
   current_weekday: "{{ now().strftime('%a') | lower }}"
   is_day_weekday: "{{ current_weekday in day_weekdays }}"
@@ -320,7 +344,15 @@ actions:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ windows_open }}"
+            value_template: "{{ everyone_away }}"
+        sequence:
+          - action: climate.turn_off
+            target:
+              entity_id: !input climate_entity
+
+      - conditions:
+          - condition: template
+            value_template: "{{ someone_home and windows_open }}"
         sequence:
           - choose:
               - conditions:
@@ -343,7 +375,7 @@ actions:
 
       - conditions:
           - condition: template
-            value_template: "{{ requested_temperature != '' }}"
+            value_template: "{{ someone_home and requested_temperature != '' }}"
         sequence:
           - action: climate.set_hvac_mode
             target:
