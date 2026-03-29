@@ -1,0 +1,215 @@
+blueprint:
+  name: MELCloud day/night schedule with window shutdown
+  description: >
+    Control a MELCloud climate entity with a helper-driven day/night schedule and
+    window-open protection.
+
+    Features:
+    - Enable or disable the schedule with an `input_boolean`
+    - Define separate day and night start times
+    - Define separate day and night target temperatures
+    - Optionally set a setback / stop temperature when a window group opens
+    - Optionally turn the unit off while the window group is open
+    - Reapply the correct scheduled target when the window group closes
+
+    Create a binary sensor group for your windows first, then use that group as
+    the window input for this blueprint.
+  domain: automation
+  author: GitHub Copilot
+  homeassistant:
+    min_version: 2024.6.0
+  input:
+    device_config:
+      name: Device
+      icon: mdi:air-conditioner
+      input:
+        climate_entity:
+          name: MELCloud climate entity
+          selector:
+            entity:
+              filter:
+                domain: climate
+        scheduled_hvac_mode:
+          name: HVAC mode to use when schedule applies
+          default: heat
+          selector:
+            select:
+              options:
+                - label: Heat
+                  value: heat
+                - label: Cool
+                  value: cool
+                - label: Auto
+                  value: auto
+                - label: Heat/Cool
+                  value: heat_cool
+                - label: Dry
+                  value: dry
+                - label: Fan only
+                  value: fan_only
+              mode: dropdown
+        schedule_enabled_entity:
+          name: Schedule enable helper
+          description: Turn this `input_boolean` on to enable the day/night schedule.
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+    schedule_config:
+      name: Day / night schedule
+      icon: mdi:clock-outline
+      input:
+        day_start_time:
+          name: Day start time
+          default: "06:00:00"
+          selector:
+            time: {}
+        night_start_time:
+          name: Night start time
+          default: "22:00:00"
+          selector:
+            time: {}
+        day_temperature:
+          name: Day temperature
+          default: 21
+          selector:
+            number:
+              min: 5
+              max: 31
+              step: 0.5
+              mode: box
+              unit_of_measurement: "°C"
+        night_temperature:
+          name: Night temperature
+          default: 18
+          selector:
+            number:
+              min: 5
+              max: 31
+              step: 0.5
+              mode: box
+              unit_of_measurement: "°C"
+    window_config:
+      name: Window protection
+      icon: mdi:window-open-variant
+      input:
+        window_group:
+          name: Window group binary sensor
+          description: Use a binary sensor group that is `on` when any window is open.
+          selector:
+            entity:
+              filter:
+                domain: binary_sensor
+        set_window_temp_on_open:
+          name: Set stop / setback temperature when windows open
+          default: true
+          selector:
+            boolean: {}
+        window_open_temperature:
+          name: Window-open stop / setback temperature
+          default: 16
+          selector:
+            number:
+              min: 5
+              max: 31
+              step: 0.5
+              mode: box
+              unit_of_measurement: "°C"
+        shutdown_on_window_open:
+          name: Turn the unit off while windows are open
+          default: true
+          selector:
+            boolean: {}
+
+mode: restart
+max_exceeded: silent
+
+triggers:
+  - trigger: homeassistant
+    event: start
+    id: startup
+
+  - trigger: time
+    at: !input day_start_time
+    id: day_schedule
+
+  - trigger: time
+    at: !input night_start_time
+    id: night_schedule
+
+  - trigger: state
+    entity_id: !input schedule_enabled_entity
+    id: schedule_toggle
+
+  - trigger: state
+    entity_id: !input window_group
+    to: "on"
+    id: window_open
+
+  - trigger: state
+    entity_id: !input window_group
+    to: "off"
+    id: window_closed
+
+variables:
+  climate_entity: !input climate_entity
+  schedule_enabled_entity: !input schedule_enabled_entity
+  window_group: !input window_group
+  scheduled_hvac_mode: !input scheduled_hvac_mode
+  day_start_time: !input day_start_time
+  night_start_time: !input night_start_time
+  day_temperature: !input day_temperature
+  night_temperature: !input night_temperature
+  set_window_temp_on_open: !input set_window_temp_on_open
+  window_open_temperature: !input window_open_temperature
+  shutdown_on_window_open: !input shutdown_on_window_open
+  schedule_enabled: "{{ is_state(schedule_enabled_entity, 'on') }}"
+  windows_open: "{{ is_state(window_group, 'on') }}"
+  current_time: "{{ now().strftime('%H:%M:%S') }}"
+  is_day_period: >-
+    {% if day_start_time < night_start_time %}
+      {{ day_start_time <= current_time < night_start_time }}
+    {% else %}
+      {{ not (night_start_time <= current_time < day_start_time) }}
+    {% endif %}
+  scheduled_temperature: "{{ day_temperature if is_day_period else night_temperature }}"
+
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ windows_open }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ set_window_temp_on_open }}"
+                sequence:
+                  - action: climate.set_temperature
+                    target:
+                      entity_id: !input climate_entity
+                    data:
+                      temperature: "{{ window_open_temperature }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ shutdown_on_window_open }}"
+                sequence:
+                  - action: climate.turn_off
+                    target:
+                      entity_id: !input climate_entity
+
+      - conditions:
+          - condition: template
+            value_template: "{{ schedule_enabled }}"
+        sequence:
+          - action: climate.set_hvac_mode
+            target:
+              entity_id: !input climate_entity
+            data:
+              hvac_mode: !input scheduled_hvac_mode
+          - action: climate.set_temperature
+            target:
+              entity_id: !input climate_entity
+            data:
+              temperature: "{{ scheduled_temperature }}"
