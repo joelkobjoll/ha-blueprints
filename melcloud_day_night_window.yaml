@@ -1,13 +1,12 @@
 blueprint:
   name: MELCloud day/night schedule with window shutdown
   description: >
-    Control a MELCloud climate entity with a helper-driven day/night schedule and
+    Control a MELCloud climate entity with a custom day/night schedule and
     window-open protection.
 
     Features:
-    - Enable or disable the schedule with an `input_boolean`
-    - Define separate day and night start times
-    - Define separate day and night target temperatures
+    - Define separate day and night weekdays and start/end times
+    - Define separate day and night start/stop/target temperatures
     - Optionally set a setback / stop temperature when a window group opens
     - Optionally turn the unit off while the window group is open
     - Reapply the correct scheduled target when the window group closes
@@ -48,29 +47,51 @@ blueprint:
                 - label: Fan only
                   value: fan_only
               mode: dropdown
-        schedule_enabled_entity:
-          name: Schedule enable helper
-          description: Turn this `input_boolean` on to enable the day/night schedule.
-          selector:
-            entity:
-              filter:
-                domain: input_boolean
     schedule_config:
       name: Day / night schedule
       icon: mdi:clock-outline
       input:
+        day_weekdays:
+          name: Day weekdays
+          default:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+            - sun
+          selector:
+            select:
+              options:
+                - label: Monday
+                  value: mon
+                - label: Tuesday
+                  value: tue
+                - label: Wednesday
+                  value: wed
+                - label: Thursday
+                  value: thu
+                - label: Friday
+                  value: fri
+                - label: Saturday
+                  value: sat
+                - label: Sunday
+                  value: sun
+              multiple: true
+              mode: dropdown
         day_start_time:
           name: Day start time
           default: "06:00:00"
           selector:
             time: {}
-        night_start_time:
-          name: Night start time
+        day_end_time:
+          name: Day end time
           default: "22:00:00"
           selector:
             time: {}
-        day_temperature:
-          name: Day temperature
+        day_start_temperature:
+          name: Day start temperature
           default: 21
           selector:
             number:
@@ -79,8 +100,87 @@ blueprint:
               step: 0.5
               mode: box
               unit_of_measurement: "°C"
-        night_temperature:
-          name: Night temperature
+        day_stop_temperature:
+          name: Day stop temperature
+          default: 19
+          selector:
+            number:
+              min: 5
+              max: 31
+              step: 0.5
+              mode: box
+              unit_of_measurement: "°C"
+        day_target_temperature:
+          name: Day target temperature
+          default: 21
+          selector:
+            number:
+              min: 5
+              max: 31
+              step: 0.5
+              mode: box
+              unit_of_measurement: "°C"
+        night_weekdays:
+          name: Night weekdays
+          default:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+            - sun
+          selector:
+            select:
+              options:
+                - label: Monday
+                  value: mon
+                - label: Tuesday
+                  value: tue
+                - label: Wednesday
+                  value: wed
+                - label: Thursday
+                  value: thu
+                - label: Friday
+                  value: fri
+                - label: Saturday
+                  value: sat
+                - label: Sunday
+                  value: sun
+              multiple: true
+              mode: dropdown
+        night_start_time:
+          name: Night start time
+          default: "22:00:00"
+          selector:
+            time: {}
+        night_end_time:
+          name: Night end time
+          default: "06:00:00"
+          selector:
+            time: {}
+        night_start_temperature:
+          name: Night start temperature
+          default: 18
+          selector:
+            number:
+              min: 5
+              max: 31
+              step: 0.5
+              mode: box
+              unit_of_measurement: "°C"
+        night_stop_temperature:
+          name: Night stop temperature
+          default: 17
+          selector:
+            number:
+              min: 5
+              max: 31
+              step: 0.5
+              mode: box
+              unit_of_measurement: "°C"
+        night_target_temperature:
+          name: Night target temperature
           default: 18
           selector:
             number:
@@ -131,15 +231,19 @@ triggers:
 
   - trigger: time
     at: !input day_start_time
-    id: day_schedule
+    id: day_start
+
+  - trigger: time
+    at: !input day_end_time
+    id: day_end
 
   - trigger: time
     at: !input night_start_time
-    id: night_schedule
+    id: night_start
 
-  - trigger: state
-    entity_id: !input schedule_enabled_entity
-    id: schedule_toggle
+  - trigger: time
+    at: !input night_end_time
+    id: night_end
 
   - trigger: state
     entity_id: !input window_group
@@ -153,26 +257,64 @@ triggers:
 
 variables:
   climate_entity: !input climate_entity
-  schedule_enabled_entity: !input schedule_enabled_entity
   window_group: !input window_group
   scheduled_hvac_mode: !input scheduled_hvac_mode
+  day_weekdays: !input day_weekdays
   day_start_time: !input day_start_time
+  day_end_time: !input day_end_time
+  day_start_temperature: !input day_start_temperature
+  day_stop_temperature: !input day_stop_temperature
+  day_target_temperature: !input day_target_temperature
+  night_weekdays: !input night_weekdays
   night_start_time: !input night_start_time
-  day_temperature: !input day_temperature
-  night_temperature: !input night_temperature
+  night_end_time: !input night_end_time
+  night_start_temperature: !input night_start_temperature
+  night_stop_temperature: !input night_stop_temperature
+  night_target_temperature: !input night_target_temperature
   set_window_temp_on_open: !input set_window_temp_on_open
   window_open_temperature: !input window_open_temperature
   shutdown_on_window_open: !input shutdown_on_window_open
-  schedule_enabled: "{{ is_state(schedule_enabled_entity, 'on') }}"
   windows_open: "{{ is_state(window_group, 'on') }}"
+  trigger_id: "{{ trigger.id if trigger is defined else 'startup' }}"
+  current_weekday: "{{ now().strftime('%a') | lower }}"
+  is_day_weekday: "{{ current_weekday in day_weekdays }}"
+  is_night_weekday: "{{ current_weekday in night_weekdays }}"
   current_time: "{{ now().strftime('%H:%M:%S') }}"
-  is_day_period: >-
-    {% if day_start_time < night_start_time %}
-      {{ day_start_time <= current_time < night_start_time }}
+  is_day_time: >-
+    {% if day_start_time < day_end_time %}
+      {{ day_start_time <= current_time < day_end_time }}
     {% else %}
-      {{ not (night_start_time <= current_time < day_start_time) }}
+      {{ current_time >= day_start_time or current_time < day_end_time }}
     {% endif %}
-  scheduled_temperature: "{{ day_temperature if is_day_period else night_temperature }}"
+  is_night_time: >-
+    {% if night_start_time < night_end_time %}
+      {{ night_start_time <= current_time < night_end_time }}
+    {% else %}
+      {{ current_time >= night_start_time or current_time < night_end_time }}
+    {% endif %}
+  is_day_period: "{{ is_day_weekday and is_day_time }}"
+  is_night_period: "{{ is_night_weekday and is_night_time }}"
+  scheduled_temperature: >-
+    {% if is_day_period %}
+      {{ day_target_temperature }}
+    {% elif is_night_period %}
+      {{ night_target_temperature }}
+    {% else %}
+      {{ '' }}
+    {% endif %}
+  transition_temperature: >-
+    {% if trigger_id == 'day_start' and is_day_weekday %}
+      {{ day_start_temperature }}
+    {% elif trigger_id == 'day_end' and is_day_weekday %}
+      {{ day_stop_temperature }}
+    {% elif trigger_id == 'night_start' and is_night_weekday %}
+      {{ night_start_temperature }}
+    {% elif trigger_id == 'night_end' and is_night_weekday %}
+      {{ night_stop_temperature }}
+    {% else %}
+      {{ '' }}
+    {% endif %}
+  requested_temperature: "{{ transition_temperature if transition_temperature != '' else scheduled_temperature }}"
 
 actions:
   - choose:
@@ -201,7 +343,7 @@ actions:
 
       - conditions:
           - condition: template
-            value_template: "{{ schedule_enabled }}"
+            value_template: "{{ requested_temperature != '' }}"
         sequence:
           - action: climate.set_hvac_mode
             target:
@@ -212,4 +354,4 @@ actions:
             target:
               entity_id: !input climate_entity
             data:
-              temperature: "{{ scheduled_temperature }}"
+              temperature: "{{ requested_temperature }}"
