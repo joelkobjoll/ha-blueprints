@@ -359,9 +359,11 @@ actions:
           - condition: template
             value_template: "{{ everyone_away }}"
         sequence:
-          - action: climate.turn_off
+          - action: climate.set_hvac_mode
             target:
               entity_id: !input climate_entity
+            data:
+              hvac_mode: "off"
 
       - conditions:
           - condition: template
@@ -376,15 +378,17 @@ actions:
                     target:
                       entity_id: !input climate_entity
                     data:
-                      temperature: "{{ window_open_temperature }}"
+                      temperature: "{{ window_open_temperature | float }}"
           - choose:
               - conditions:
                   - condition: template
                     value_template: "{{ shutdown_on_window_open }}"
                 sequence:
-                  - action: climate.turn_off
+                  - action: climate.set_hvac_mode
                     target:
                       entity_id: !input climate_entity
+                    data:
+                      hvac_mode: "off"
 
       - conditions:
           - condition: template
@@ -399,4 +403,4 @@ actions:
             target:
               entity_id: !input climate_entity
             data:
-              temperature: "{{ requested_temperature }}"
+              temperature: "{{ requested_temperature | float }}"
